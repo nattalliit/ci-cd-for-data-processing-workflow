@@ -29,7 +29,7 @@ dataflow_jar_location = 'gs://%s/%s' % (
     models.Variable.get('dataflow_jar_location_test'),
     dataflow_jar_file_test)
 
-project = models.Variable.get('gcp_project')
+project = models.Variable.get('qwiklabs-gcp-03-e04cdc70d5a3')
 region = models.Variable.get('gcp_region')
 zone = models.Variable.get('gcp_zone')
 input_bucket = 'gs://' + models.Variable.get('gcs_input_bucket_test')
