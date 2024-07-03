@@ -11,15 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-Data processing test workflow definition.
-"""
-"""
-Data processing test workflow definition.
+"""Data processing test workflow definition.
 """
 import datetime
 from airflow import models
 from airflow.contrib.operators.dataflow_operator import DataFlowJavaOperator
+from airflow.providers.google.cloud.transfers.gcs_to_local import GCSToLocalFilesystemOperator
+from airflow.providers.google.cloud.operators.pubsub import PubSubPublishMessageOperator
+from compare_xcom_maps import CompareXComMapsOperator
 
 dataflow_jar_file_test = models.Variable.get('dataflow_jar_file_test')
 
@@ -36,6 +35,10 @@ zone = models.Variable.get('gcp_zone')
 input_bucket = 'gs://' + models.Variable.get('gcs_input_bucket_test')
 output_bucket_name = models.Variable.get('gcs_output_bucket_test')
 output_bucket = 'gs://' + output_bucket_name
+ref_bucket = models.Variable.get('gcs_ref_bucket_test')
+pubsub_topic = models.Variable.get('pubsub_topic')
+output_prefix = 'output'
+download_task_prefix = 'download_result'
 
 yesterday = datetime.datetime.combine(
     datetime.datetime.today() - datetime.timedelta(1),
@@ -53,18 +56,70 @@ default_args = {
 with models.DAG(
     'test_word_count',
     schedule_interval=None,
-    default_args=default_args,
-    start_date=yesterday
-) as dag:
-    dataflow_execution = DataFlowJavaOperator(
-        task_id='wordcount-run',
-        jar=dataflow_jar_location,
-        options={
-            'autoscalingAlgorithm': 'THROUGHPUT_BASED',
-            'maxNumWorkers': '3',
-            'inputFile': input_bucket + '/input.txt',
-            'output': output_bucket + '/output'
-        }
-    )
+    default_args=default_args) as dag:
+  dataflow_execution = DataFlowJavaOperator(
+      task_id='wordcount-run',
+      jar=dataflow_jar_location,
+      start_date=yesterday,
+      options={
+          'autoscalingAlgorithm': 'THROUGHPUT_BASED',
+          'maxNumWorkers': '3',
+          'inputFile': input_bucket+'/input.txt',
+          'output': output_bucket+'/'+output_prefix
+      }
+  )
+  download_expected = GCSToLocalFilesystemOperator(
+      task_id='download_ref_string',
+      bucket=ref_bucket,
+      object_name='ref.txt',
+      store_to_xcom_key='ref_str',
+      start_date=yesterday
+  )
+  download_result_one = GCSToLocalFilesystemOperator(
+      task_id=download_task_prefix+'_1',
+      bucket=output_bucket_name,
+      object_name=output_prefix+'-00000-of-00003',
+      store_to_xcom_key='res_str_1',
+      start_date=yesterday
+  )
+  download_result_two = GCSToLocalFilesystemOperator(
+      task_id=download_task_prefix+'_2',
+      bucket=output_bucket_name,
+      object_name=output_prefix+'-00001-of-00003',
+      store_to_xcom_key='res_str_2',
+      start_date=yesterday
+  )
+  download_result_three = GCSToLocalFilesystemOperator(
+      task_id=download_task_prefix+'_3',
+      bucket=output_bucket_name,
+      object_name=output_prefix+'-00002-of-00003',
+      store_to_xcom_key='res_str_3',
+      start_date=yesterday
+  )
+  compare_result = CompareXComMapsOperator(
+      task_id='do_comparison',
+      ref_task_ids=['download_ref_string'],
+      res_task_ids=[download_task_prefix+'_1',
+                    download_task_prefix+'_2',
+                    download_task_prefix+'_3'],
+      start_date=yesterday
+  )
+  
+  publish_task = PubSubPublishMessageOperator(
+      task_id='publish_test_complete',
+      project=project,
+      topic=pubsub_topic,
+      messages=[{'data': dataflow_jar_file_test.encode('utf-8')}],
+      start_date=yesterday
+  )
 
-dataflow_execution
+  dataflow_execution >> download_result_one
+  dataflow_execution >> download_result_two
+  dataflow_execution >> download_result_three
+
+  download_expected >> compare_result
+  download_result_one >> compare_result
+  download_result_two >> compare_result
+  download_result_three >> compare_result
+
+  compare_result >> publish_task
