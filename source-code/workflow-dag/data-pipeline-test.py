@@ -11,7 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Data processing test workflow definition.
+"""
+Data processing test workflow definition.
 """
 import datetime
 from airflow import models
@@ -107,7 +108,7 @@ with models.DAG(
   
   publish_task = PubSubPublishMessageOperator(
       task_id='publish_test_complete',
-      project='qwiklabs-gcp-03-26ad8eb6792a',
+      project_id=project,
       topic=pubsub_topic,
       messages=[{'data': dataflow_jar_file_test.encode('utf-8')}],
       start_date=yesterday
