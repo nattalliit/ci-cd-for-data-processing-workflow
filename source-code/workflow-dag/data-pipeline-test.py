@@ -107,7 +107,7 @@ with models.DAG(
   
   publish_task = PubSubPublishMessageOperator(
       task_id='publish_test_complete',
-      project=project,
+      project='qwiklabs-gcp-03-26ad8eb6792a',
       topic=pubsub_topic,
       messages=[{'data': dataflow_jar_file_test.encode('utf-8')}],
       start_date=yesterday
